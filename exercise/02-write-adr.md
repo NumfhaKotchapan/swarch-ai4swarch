@@ -35,10 +35,12 @@ language: Thai
 
 | เกณฑ์ | Run a | Run b |
 |---|---|---|
-| ใช้ตัวเลขจาก scenario หรือไม่ (latency, ช่วงพีก, ข้อจำกัดของ MailFast) | | |
-| ทางเลือกที่พิจารณา (ระบุ) | | |
-| จัดการแต้มสะสมแบบ "ครั้งเดียวเท่านั้น" และ rate limit ของ MailFast หรือไม่ อย่างไร | | |
-| มีสิ่งที่แต่งขึ้นเองหรือไม่ (ตัวเลข เครื่องมือ หรือข้อเท็จจริงที่ไม่มีใน scenario) | | |
+| ใช้ตัวเลขจาก scenario หรือไม่ (latency, ช่วงพีก, ข้อจำกัดของ MailFast) | ไม่กำหนดตัวเลข latency, throughput หรือ rate limit; ถาม SLO ปริมาณงาน และข้อจำกัด MailFast ไว้ใน Open questions | ใช้ checkout p95 ≤ 500 ms (ปัจจุบันประมาณ 300 ms), peak 200 orders/s, MailFast p95 1.5 s/p99 8 s, failure 0.5%, limit 50 emails/s และแต้มภายใน 60 s; ตัวเลขตรงกับ docs/scenario.th.md |
+| ทางเลือกที่พิจารณา (ระบุ) | เรียกงานโดยตรงแบบ synchronous; ตัวประสานงาน asynchronous ควบคุม workflow; durable event ผ่าน message broker ที่ยังไม่เลือกผลิตภัณฑ์ | synchronous gRPC จาก checkoutservice; ตัวจัดการงานส่วนกลางกับคิวถาวรในฐานข้อมูล; RabbitMQ พร้อม outbox และ consumer แยก |
+| จัดการแต้มสะสมแบบ "ครั้งเดียวเท่านั้น" และ rate limit ของ MailFast หรือไม่ อย่างไร | ใช้ orderId ร่วมกับชนิดรายการคะแนนเป็นกุญแจกันซ้ำ และบันทึกพร้อมผลคะแนนแบบ atomic; ยังไม่ทราบ rate limit ของ MailFast จึงถามไว้ | ใช้ unique key ของการให้แต้มต่อ order_id บันทึกพร้อม ledger ใน transaction เดียว และ ack หลัง commit; จำกัด MailFast รวมทุก replica และ retry ≤ 50 calls/s; หาก 1 email/order ที่ 200 orders/s จะมี backlog เพิ่มอย่างน้อย 150 รายการ/s |
+| มีสิ่งที่แต่งขึ้นเองหรือไม่ (ตัวเลข เครื่องมือ หรือข้อเท็จจริงที่ไม่มีใน scenario) | แยก outbox, event fields และ consumer เป็นข้อเสนอใหม่ ไม่อ้างว่ามีอยู่แล้ว; ไม่ตั้งตัวเลข performance หรืออ้างว่ารันทดสอบแล้ว | แยก RabbitMQ, outbox, durable store และ queue topology เป็นข้อเสนอใหม่ ไม่อ้างว่ามีอยู่แล้วหรือทดสอบแล้ว; ตัวเลขข้อกำหนดตรงกับ scenario และระบุ backlog 150/s เป็นผลคำนวณภายใต้สมมติฐาน 1 email/order |
+
+> **วิธีเปรียบเทียบ:** รอบล่าสุดทำ Run a และ Run b ในแชตใหม่แยกกัน ตารางนี้เปรียบเทียบไฟล์ outputs/2a-adr.md และ outputs/2b-adr.md ล่าสุด ส่วนข้อมูลร่างเดิมและการทำรอบใหม่บันทึกแยกไว้ใน exercise/00-prompt-log.md
 
 ## รับผิดชอบ ADR ฉบับสุดท้ายของตัวเอง
 
@@ -51,6 +53,13 @@ language: Thai
 
 | # | สิ่งที่เปลี่ยนจากร่างของ AI | เหตุผล |
 |---|---|---|
-| 1 | | |
-| 2 | | |
-| 3 | | |
+| 1 | AI ปรับเหตุผลใน Decision ให้ชัดว่าเสนอ RabbitMQ โดยให้ความสำคัญกับ availability และ modifiability พร้อมคงเป้าหมาย latency และระบุภาระ broker, durable store และ eventual consistency | ทำให้เหตุผลและต้นทุนของทางเลือกที่ผู้จัดทำตรวจรับชัดเจน |
+| 2 | AI เพิ่ม Conditions before implementation สำหรับระยะ peak/เวลารออีเมล/quota, recovery หลัง payment/shipping และขอบเขต SLA แต้ม 60 s | รวบรวมประเด็นที่มีอยู่ใน Run b ให้เป็นเงื่อนไขที่ต้องปิดก่อนใช้จริง โดยคง Open questions ไว้ |
+| 3 | AI เพิ่มข้อความเปิด Validation ว่าเป็นแผนทดสอบที่ยังไม่ได้ดำเนินการ และเพิ่มหมายเหตุสถานะฉบับเตรียมส่ง | แยกแผนทดสอบออกจากผลทดสอบจริง; การระบุผู้ตัดสินใจหลังตรวจรับบันทึกในแถว 4 |
+| 4 | ระบุชื่อใน Deciders และปรับหมายเหตุหลังตรวจรับข้อเสนอ | ให้สถานะผู้ตัดสินใจตรงกับการตรวจรับจริง |
+
+
+
+## สถานะข้อเสนอหลังตรวจรับ
+
+ADR ฉบับนี้ใช้ Run b ล่าสุดเป็นฐาน โดยมี AI ช่วยปรับเอกสาร ผู้จัดทำตรวจและเลือกแนวทาง RabbitMQ พร้อม outbox และ consumers แยก พร้อมยอมรับภาระ operation และ eventual consistency จึงระบุชื่อใน Deciders คงสถานะ Proposed และเก็บเงื่อนไขที่ต้องพิสูจน์ก่อนนำไปใช้จริงไว้ใน Conditions before implementation
